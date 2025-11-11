@@ -4,7 +4,14 @@
 <meta charset="utf-8" />
 <title>Sadman's Air Nav - Waypoints Pro</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+<!-- PWA manifest (for offline + add-to-home-screen) -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2a9df4">
+
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
 <style>
 body { margin:0; padding:0; font-family:Arial, sans-serif; }
 #map { position:absolute; top:0; bottom:0; left:0; right:320px; }
@@ -36,8 +43,10 @@ input[type=text], textarea, select { width:100%; box-sizing:border-box; padding:
 </head>
 <body>
 
+<!-- MAP -->
 <div id="map"></div>
 
+<!-- SIDEBAR (all items intact) -->
 <div id="sidebar">
   <h3>Waypoint Tool</h3>
   <small class="small">Click map to add waypoint. Click waypoint to select/edit.</small>
@@ -87,33 +96,23 @@ input[type=text], textarea, select { width:100%; box-sizing:border-box; padding:
   <div class="box">
     <h2>Security / Location Notice</h2>
     <p>This page requires secure origin (HTTPS or localhost) for the device's GPS to work properly.
-    If you opened this file directly (file://) or over non-secure HTTP, location features will be blocked.</p>
-    <p><b>Recommended:</b> Host this file with <b>GitHub Pages</b> (free, HTTPS). See the instructions I provide below.</p>
-    <p>If you want to run locally on Android, use a simple HTTP server or an app that serves files over <code>http://localhost</code> (instructions below).</p>
+    If you opened this file directly (file://) or over non-secure HTTP, location features may be blocked.</p>
+    <p><b>Recommended:</b> Use your GitHub Pages HTTPS link.</p>
     <p><a id="hideOverlay" class="btn small" style="background:#28a745">I understand - continue anyway</a></p>
   </div>
 </div>
 
+<!-- Leaflet -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
-/*
-  Minimal safe corrections and added checks:
-  - Detect insecure context and show overlay with instructions.
-  - Use navigator.permissions when available to prompt and give feedback.
-  - Better geolocation error handling & messages for mobile devices.
-  - Keep all original elements and texts intact.
-*/
+/* ========== CORE MAP APP (intact) + small safety/offline additions ========== */
 
-// show file reference (for debugging)
-console.log("Loaded Sadman's Air Nav");
-
-// --- Secure context detection ---
+// --- Secure context hint (for geolocation) ---
 const insecureOverlay = document.getElementById('insecureOverlay');
 function checkSecureContextAndWarn(){
-  const protocol = window.location.protocol;
-  // allow https: and localhost (file:// is not acceptable for geolocation in many browsers)
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  const ok = (protocol === 'https:' || isLocalhost);
+  const ok = (location.protocol === 'https:' || isLocalhost);
   if(!ok){
     insecureOverlay.style.display = 'block';
     insecureOverlay.setAttribute('aria-hidden','false');
@@ -125,14 +124,14 @@ document.getElementById('hideOverlay').onclick = ()=>{
 };
 checkSecureContextAndWarn();
 
-// --- Utility functions (unchanged logic) ---
-const map = L.map('map').setView([23.685, 90.3563], 7); // Bangladesh
+// --- Leaflet map ---
+const map = L.map('map').setView([23.685, 90.3563], 7); // Bangladesh focus
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// existing vars (kept exactly)
+// --- State ---
 let waypoints = [];
 let markers = {};
 let selected = [];
@@ -144,19 +143,21 @@ let directLayer = null;
 let directTargetId = null;
 let lastSpeedGPS = 0;
 
-// --- DOM elements ---
+// --- DOM ---
 const listDiv = document.getElementById('list');
 const coordsOut = document.getElementById('coordsOut');
 const routeSummaryDiv = document.getElementById('routeSummary');
 const directSelect = document.getElementById('directSelect');
 const recenterBtn = document.getElementById('recenterBtn');
+const latIn = document.getElementById('latIn');
+const lonIn = document.getElementById('lonIn');
 
-// --- Utility functions kept as-is ---
+// --- Utils ---
 function haversineNM(lat1,lon1,lat2,lon2){
   const R=6371e3, toRad=v=>v*Math.PI/180;
   const φ1=toRad(lat1),φ2=toRad(lat2),Δφ=toRad(lat2-lat1),Δλ=toRad(lon2-lon1);
   const a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))/1852; // NM
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))/1852;
 }
 function bearing(lat1,lon1,lat2,lon2){
   const toRad=v=>v*Math.PI/180,toDeg=v=>v*180/Math.PI;
@@ -166,7 +167,7 @@ function bearing(lat1,lon1,lat2,lon2){
   return (toDeg(Math.atan2(y,x))+360)%360;
 }
 
-// --- Waypoint functions (kept) ---
+// --- Waypoints (intact behavior) ---
 function renderList(){
   listDiv.innerHTML='';
   directSelect.innerHTML='<option value="">Select Waypoint</option>';
@@ -183,14 +184,10 @@ function renderList(){
       </div>
     `;
     listDiv.appendChild(div);
-
-    const opt = document.createElement('option');
-    opt.value=w.id;
-    opt.text=w.name;
-    directSelect.appendChild(opt);
+    const opt=document.createElement('option');
+    opt.value=w.id; opt.text=w.name; directSelect.appendChild(opt);
   });
 }
-
 function addWaypoint(lat,lon,name){
   const id = Date.now()+Math.floor(Math.random()*999);
   const wp={id,lat,lon,name:name||('WP-'+(waypoints.length+1))};
@@ -200,10 +197,8 @@ function addWaypoint(lat,lon,name){
     .bindPopup(`<b>${wp.name}</b><br>${lat.toFixed(5)}, ${lon.toFixed(5)}<br><a href="#" onclick="editWaypoint(${wp.id})">Edit</a>`);
   marker.on('click',()=>selectWaypoint(wp.id));
   markers[id]=marker;
-  renderList();
-  saveLocal();
+  renderList(); saveLocal();
 }
-
 function editWaypoint(id){
   const wp=waypoints.find(w=>w.id===id);
   if(!wp)return;
@@ -216,23 +211,17 @@ function editWaypoint(id){
     markers[id].setLatLng([wp.lat,wp.lon])
       .bindPopup(`<b>${wp.name}</b><br>${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)}<br><a href="#" onclick="editWaypoint(${wp.id})">Edit</a>`);
   }
-  renderList();
-  saveLocal();
+  renderList(); saveLocal();
 }
-
 function deleteWaypoint(id){
   if(!confirm('Delete this waypoint?'))return;
   waypoints=waypoints.filter(w=>w.id!==id);
-  map.removeLayer(markers[id]);
-  delete markers[id];
-  renderList();
-  saveLocal();
+  map.removeLayer(markers[id]); delete markers[id];
+  renderList(); saveLocal();
 }
-
 function selectWaypoint(id){
   const idx=selected.indexOf(id);
-  if(idx===-1) selected.push(id);
-  else selected.splice(idx,1);
+  if(idx===-1) selected.push(id); else selected.splice(idx,1);
   Object.keys(markers).forEach(k=>{
     const mk=markers[k];
     if(selected.includes(Number(k))) mk.setStyle({color:'#00f',fillColor:'#00f'});
@@ -240,25 +229,19 @@ function selectWaypoint(id){
   });
 }
 
-// --- Route & Checkpoints ---
+// --- Route & Checkpoints (intact) ---
 function makeRoute(){
   if(selected.length<2){ alert('Select at least 2 waypoints'); return; }
   if(routeLayer) map.removeLayer(routeLayer);
-  checkpointMarkers.forEach(cp=>map.removeLayer(cp));
-  checkpointMarkers=[];
+  checkpointMarkers.forEach(cp=>map.removeLayer(cp)); checkpointMarkers=[];
   const latlngs=selected.map(id=>{ const w=waypoints.find(wp=>wp.id===id); return [w.lat,w.lon]; });
   routeLayer=L.polyline(latlngs,{color:'#ff6600',weight:2}).addTo(map);
-
   updateRouteSummary();
-
   routeLayer.on('click', e => addCheckpoint(e.latlng));
 }
-
 function updateRouteSummary(){
   if(selected.length<2) return;
-  let cumulativeDistance=0;
-  let cumulativeTimeInput=0;
-  let cumulativeTimeGPS=0;
+  let cumulativeDistance=0, cumulativeTimeInput=0, cumulativeTimeGPS=0;
   const speedInput=parseFloat(document.getElementById('speedInput').value)||0;
   routeSummaryDiv.innerHTML='';
   for(let i=0;i<selected.length-1;i++){
@@ -268,14 +251,12 @@ function updateRouteSummary(){
     cumulativeDistance+=dist;
     const timeInput=speedInput>0 ? (dist/speedInput*60) : 0;
     const timeGPS=lastSpeedGPS>0 ? (dist/lastSpeedGPS*60) : 0;
-    cumulativeTimeInput+=timeInput;
-    cumulativeTimeGPS+=timeGPS;
+    cumulativeTimeInput+=timeInput; cumulativeTimeGPS+=timeGPS;
     const brg=bearing(a.lat,a.lon,b.lat,b.lon);
     routeSummaryDiv.innerHTML+=`<b>${a.name} → ${b.name}</b>: ${dist.toFixed(2)} NM, ${brg.toFixed(1)}°, ETA Input: ${timeInput.toFixed(1)} min, ETA GPS: ${timeGPS.toFixed(1)} min<br>`;
   }
   routeSummaryDiv.innerHTML+=`<b>Total:</b> ${cumulativeDistance.toFixed(2)} NM, ETA Input: ${cumulativeTimeInput.toFixed(1)} min, ETA GPS: ${cumulativeTimeGPS.toFixed(1)} min`;
 }
-
 function addCheckpoint(latlng){
   let prevLatLng;
   if(checkpointMarkers.length>0){
@@ -288,180 +269,127 @@ function addCheckpoint(latlng){
   } else {
     prevLatLng = map.getCenter();
   }
-
   const dist = haversineNM(prevLatLng.lat, prevLatLng.lng, latlng.lat, latlng.lng);
   const inputSpeed = parseFloat(document.getElementById('speedInput').value) || 0;
   const etaInput = inputSpeed>0 ? (dist/inputSpeed*60).toFixed(1)+' min' : 'N/A';
-  const etaGPS = lastSpeedGPS>0 ? (dist/lastSpeedGPS*60).toFixed(1)+' min' : 'N/A';
-
-  const cpMarker = L.circleMarker([latlng.lat, latlng.lng], {
-    radius:4,
-    color:'#0a0',
-    fillColor:'#0a0',
-    fillOpacity:0.8
-  }).addTo(map);
-
+  const etaGPS  = lastSpeedGPS>0 ? (dist/lastSpeedGPS*60).toFixed(1)+' min' : 'N/A';
+  const cpMarker = L.circleMarker([latlng.lat, latlng.lng], { radius:4, color:'#0a0', fillColor:'#0a0', fillOpacity:0.8 }).addTo(map);
   cpMarker.bindPopup(`Checkpoint<br>Distance: ${dist.toFixed(2)} NM<br>ETA Input: ${etaInput}<br>ETA GPS: ${etaGPS}`).openPopup();
   cpMarker.bindTooltip(`Dist: ${dist.toFixed(2)} NM, ETA Input: ${etaInput}, ETA GPS: ${etaGPS}`, {permanent:true,direction:'top'});
-
   checkpointMarkers.push(cpMarker);
 }
-
 function clearRoute(){
   if(routeLayer) map.removeLayer(routeLayer);
   routeLayer=null;
-  checkpointMarkers.forEach(cp=>map.removeLayer(cp));
-  checkpointMarkers=[];
-  selected=[];
-  routeSummaryDiv.innerHTML='';
+  checkpointMarkers.forEach(cp=>map.removeLayer(cp)); checkpointMarkers=[];
+  selected=[]; routeSummaryDiv.innerHTML='';
   Object.values(markers).forEach(m=>m.setStyle({color:'#f00',fillColor:'#f00'}));
 }
 
-// --- Geolocation helpers (ADDED) ---
+// --- Geolocation helpers (robust, but no UI changes) ---
 async function ensureGeolocationPermission(){
-  // Returns true if permission is granted or user approves; false otherwise.
   if(!('geolocation' in navigator)) { alert('Geolocation not supported'); return false; }
-
-  // If Permissions API available, query status
   if(navigator.permissions && navigator.permissions.query){
     try{
       const status = await navigator.permissions.query({ name: 'geolocation' });
-      // status.state is 'granted', 'prompt', or 'denied'
-      console.log('geolocation permission state:', status.state);
       if(status.state === 'granted') return true;
       if(status.state === 'prompt'){
-        // Request once with getCurrentPosition to trigger browser prompt
         return new Promise((res) => {
           navigator.geolocation.getCurrentPosition(
             ()=>res(true),
-            (err)=> { console.warn('Permission denied or error', err); res(false); },
+            ()=>res(false),
             { enableHighAccuracy:true, maximumAge:1000, timeout:10000 }
           );
         });
       }
-      // denied
-      alert('Location permission is denied. Please enable location for this site in your browser settings.');
+      alert('Location permission is denied. Enable location for this site in your browser settings.');
       return false;
-    } catch(e){
-      console.warn('Permissions API error', e);
-    }
+    } catch(e){}
   }
-  // Fallback: attempt to get current position to trigger prompt
   return new Promise((res)=>{
     navigator.geolocation.getCurrentPosition(
       ()=>res(true),
-      (err)=> { console.warn('Permission denied or error', err); res(false); },
+      ()=>res(false),
       { enableHighAccuracy:true, maximumAge:1000, timeout:10000 }
     );
   });
 }
-
-// --- Flying Mode (modified to use permission helper & improved error handling) ---
 function startFlying(){
   if(flyMarker) return alert('Already flying');
-  if(!navigator.geolocation) return alert('Geolocation not supported');
-
-  // Ensure secure context
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   if(!(location.protocol === 'https:' || isLocalhost)){
-    alert('Geolocation requires HTTPS or localhost. Host the file on GitHub Pages or serve it via localhost.');
+    alert('Geolocation needs HTTPS or localhost. Use your GitHub Pages link.');
     return;
   }
-
   ensureGeolocationPermission().then(ok=>{
     if(!ok) return;
     flyMarker=L.circleMarker([0,0],{radius:6,color:'#a52a2a',fillColor:'#a52a2a',fillOpacity:0.9}).addTo(map);
     flyWatchId=navigator.geolocation.watchPosition(pos=>{
-      const lat=pos.coords.latitude;
-      const lon=pos.coords.longitude;
+      const lat=pos.coords.latitude, lon=pos.coords.longitude;
       const speed=pos.coords.speed || 0;
-      lastSpeedGPS = (speed || 0) * 1.94384; // m/s to knots
-
+      lastSpeedGPS = (speed || 0) * 1.94384; // m/s -> knots
       flyMarker.setLatLng([lat,lon]);
       coordsOut.textContent=`${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-      map.setView([lat,lon]); // center on flying
-
+      map.setView([lat,lon]);
       updateRouteSummary();
     },err=>{
-      console.error(err);
       alert('Error getting location: '+(err.message||err.code));
     },{enableHighAccuracy:true,maximumAge:1000});
   });
 }
-
 function stopFlying(){
   if(flyWatchId) navigator.geolocation.clearWatch(flyWatchId);
   if(flyMarker) map.removeLayer(flyMarker);
   flyMarker=null; flyWatchId=null;
 }
-
-// --- Direct-To Mode (modified similarly) ---
 function startDirectTo(){
   if(!directSelect.value) return alert('Select waypoint first');
   directTargetId=parseInt(directSelect.value);
-  if(!navigator.geolocation) return alert('Geolocation not supported');
-
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   if(!(location.protocol === 'https:' || isLocalhost)){
-    alert('Geolocation requires HTTPS or localhost. Host the file on GitHub Pages or serve it via localhost.');
+    alert('Geolocation needs HTTPS or localhost. Use your GitHub Pages link.');
     return;
   }
-
   ensureGeolocationPermission().then(ok=>{
     if(!ok) return;
     if(directLayer) map.removeLayer(directLayer);
     directLayer=L.polyline([],{color:'#ff00ff',weight:2,dashArray:'4'}).addTo(map);
-
-    if(!flyMarker) {
-      flyMarker=L.circleMarker([0,0],{radius:6,color:'#a52a2a',fillColor:'#a52a2a',fillOpacity:0.9}).addTo(map);
-    }
-
+    if(!flyMarker) flyMarker=L.circleMarker([0,0],{radius:6,color:'#a52a2a',fillColor:'#a52a2a',fillOpacity:0.9}).addTo(map);
     flyWatchId=navigator.geolocation.watchPosition(pos=>{
-      const lat=pos.coords.latitude;
-      const lon=pos.coords.longitude;
+      const lat=pos.coords.latitude, lon=pos.coords.longitude;
       const speed=pos.coords.speed || 0;
-      lastSpeedGPS = (speed || 0) * 1.94384; // m/s to knots
-
+      lastSpeedGPS = (speed || 0) * 1.94384;
       flyMarker.setLatLng([lat,lon]);
       coordsOut.textContent=`${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-      map.setView([lat,lon]); // center
-
+      map.setView([lat,lon]);
       const target=waypoints.find(w=>w.id===directTargetId);
       if(!target) return;
-
       const dist=haversineNM(lat,lon,target.lat,target.lon);
       const inputSpeed=parseFloat(document.getElementById('speedInput').value)||0;
       const etaInput=inputSpeed>0 ? (dist/inputSpeed*60).toFixed(1)+' min':'N/A';
       const etaGPS = lastSpeedGPS>0 ? (dist/lastSpeedGPS*60).toFixed(1)+' min' : 'N/A';
       const brg=bearing(lat,lon,target.lat,target.lon);
-
       routeSummaryDiv.innerHTML=`Direct-To ${target.name}<br>Distance: ${dist.toFixed(2)} NM<br>Bearing: ${brg.toFixed(1)}°<br>ETA Input: ${etaInput}<br>ETA GPS: ${etaGPS}`;
-
       directLayer.setLatLngs([[lat,lon],[target.lat,target.lon]]);
     },err=>{
-      console.error(err);
       alert('Error getting location: '+(err.message||err.code));
     },{enableHighAccuracy:true,maximumAge:1000});
   });
 }
-
 function stopDirectTo(){
   if(flyWatchId) navigator.geolocation.clearWatch(flyWatchId);
   if(directLayer) map.removeLayer(directLayer);
   directLayer=null; directTargetId=null;
   routeSummaryDiv.innerHTML='';
-  if(flyMarker) map.removeLayer(flyMarker);
-  flyMarker=null; flyWatchId=null;
+  if(flyMarker) { map.removeLayer(flyMarker); flyMarker=null; }
+  flyWatchId=null;
 }
 
-// --- Recenter button ---
+// --- Recenter ---
 recenterBtn.onclick = ()=>{
-  if(flyMarker){
-    map.setView(flyMarker.getLatLng());
-  } else {
-    alert('Flying or Direct-To mode not active');
-  }
-}
+  if(flyMarker){ map.setView(flyMarker.getLatLng()); }
+  else { alert('Flying or Direct-To mode not active'); }
+};
 
 // --- Local storage ---
 function saveLocal(){ localStorage.setItem('map_waypoints_v5',JSON.stringify(waypoints)); }
@@ -469,7 +397,7 @@ function loadLocal(){
   const data=localStorage.getItem('map_waypoints_v5');
   if(!data) return;
   try{ const arr=JSON.parse(data); arr.forEach(w=>addWaypoint(w.lat,w.lon,w.name)); }
-  catch(e){console.error(e);}
+  catch(e){ console.error(e); }
 }
 
 // --- Map click ---
@@ -478,7 +406,7 @@ map.on('click',e=>{
   addWaypoint(e.latlng.lat,e.latlng.lng);
 });
 
-// --- DOM events ---
+// --- Buttons ---
 document.getElementById('goBtn').onclick=()=>{
   const lat=parseFloat(latIn.value),lon=parseFloat(lonIn.value);
   if(isNaN(lat)||isNaN(lon)){alert('Invalid'); return;}
@@ -503,6 +431,15 @@ document.getElementById('stopDirectBtn').onclick=stopDirectTo;
 
 // --- INIT ---
 loadLocal();
+
+/* ======= PWA: register service worker (for offline) ======= */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW registered', reg.scope))
+      .catch(err => console.error('SW registration failed', err));
+  });
+}
 </script>
 </body>
 </html>
